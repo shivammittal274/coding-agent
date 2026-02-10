@@ -1,15 +1,11 @@
-import type { PhaseName } from '../types.js';
+import type { StageName } from '../types.js';
 
-const PHASE_COLORS: Record<string, string> = {
-  intake: '\x1b[36m',     // cyan
-  setup: '\x1b[34m',      // blue
-  plan: '\x1b[33m',       // yellow
-  'plan-review': '\x1b[35m', // magenta
-  execute: '\x1b[32m',    // green
-  'code-review': '\x1b[35m', // magenta
-  test: '\x1b[31m',       // red
-  'test-fix': '\x1b[31m', // red
-  commit: '\x1b[32m',     // green
+const STAGE_COLORS: Record<string, string> = {
+  setup: '\x1b[34m',       // blue
+  plan: '\x1b[33m',        // yellow
+  implement: '\x1b[32m',   // green
+  commit: '\x1b[36m',      // cyan
+  simulator: '\x1b[35m',   // magenta
 };
 
 const RESET = '\x1b[0m';
@@ -21,9 +17,9 @@ function timestamp(): string {
 }
 
 export const log = {
-  phase(phase: PhaseName | string, message: string): void {
-    const color = PHASE_COLORS[phase] || '\x1b[37m';
-    const tag = phase.toUpperCase().padEnd(12);
+  stage(stage: StageName | string, message: string): void {
+    const color = STAGE_COLORS[stage] || '\x1b[37m';
+    const tag = stage.toUpperCase().padEnd(12);
     console.log(`${DIM}${timestamp()}${RESET} ${color}${BOLD}[${tag}]${RESET} ${message}`);
   },
 
@@ -45,6 +41,11 @@ export const log = {
 
   cost(label: string, costUsd: number): void {
     console.log(`${DIM}${timestamp()}${RESET} ${DIM}[COST]${RESET}        ${label}: $${costUsd.toFixed(4)}`);
+  },
+
+  agent(role: string, message: string): void {
+    const color = STAGE_COLORS[role] || DIM;
+    console.log(`${DIM}${timestamp()}${RESET} ${color}  ${role}:${RESET} ${DIM}${message}${RESET}`);
   },
 
   divider(): void {

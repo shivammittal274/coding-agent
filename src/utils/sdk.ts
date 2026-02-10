@@ -13,7 +13,6 @@ export interface RunAgentOptions {
   maxBudgetUsd?: number;
 }
 
-/** Cost accumulator shared across all SDK calls in a session */
 let totalAccumulatedCost = 0;
 
 export function getAccumulatedCost(): number {
@@ -24,11 +23,6 @@ export function resetAccumulatedCost(): void {
   totalAccumulatedCost = 0;
 }
 
-/**
- * Run a Claude Code agent session.
- * Streams messages, captures session ID + cost, returns result.
- * Supports per-phase budget enforcement via abortController.
- */
 export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
   const {
     prompt,
@@ -64,12 +58,33 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
 
   try {
     for await (const message of stream) {
-      // Capture session ID from init
       if (message.type === 'system' && message.subtype === 'init') {
         sessionId = message.session_id;
       }
 
-      // Capture result
+      // Stream tool usage to give user visibility
+      if (message.type === 'assistant' && message.message?.content) {
+        for (const block of message.message.content) {
+          if (block.type === 'tool_use') {
+            const name = block.name;
+            const input = block.input as Record<string, unknown>;
+            // Show what the agent is doing
+            if (name === 'Read' && input.file_path) {
+              log.agent('agent', `reading ${input.file_path}`);
+            } else if (name === 'Write' && input.file_path) {
+              log.agent('agent', `writing ${input.file_path}`);
+            } else if (name === 'Edit' && input.file_path) {
+              log.agent('agent', `editing ${input.file_path}`);
+            } else if (name === 'Bash' && input.command) {
+              const cmd = String(input.command).slice(0, 80);
+              log.agent('agent', `$ ${cmd}`);
+            } else if (name === 'Glob' || name === 'Grep') {
+              log.agent('agent', `searching (${name.toLowerCase()})`);
+            }
+          }
+        }
+      }
+
       if (message.type === 'result') {
         costUsd = message.total_cost_usd;
         totalAccumulatedCost += costUsd;
@@ -77,21 +92,17 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
         if (message.subtype === 'success') {
           resultText = message.result;
         } else {
-          // error_max_turns or error_during_execution
           log.warn(`Agent ended with: ${message.subtype}`);
         }
       }
 
-      // Per-phase budget enforcement: check accumulated cost mid-stream
-      // We can't get exact mid-stream cost, but we can check total accumulated
       if (maxBudgetUsd && totalAccumulatedCost + costUsd > maxBudgetUsd) {
-        log.warn(`Phase budget exceeded ($${maxBudgetUsd}), aborting agent`);
+        log.warn(`Budget exceeded ($${maxBudgetUsd}), aborting agent`);
         abortController.abort();
         break;
       }
     }
   } catch (err: any) {
-    // AbortError is expected when we abort the stream
     if (err?.name !== 'AbortError') {
       throw err;
     }

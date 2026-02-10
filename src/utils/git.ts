@@ -107,3 +107,54 @@ export function push(cwd: string, branchName: string): void {
 export function getCurrentBranch(cwd: string): string {
   return exec('git rev-parse --abbrev-ref HEAD', cwd);
 }
+
+export function getBaselineCommit(cwd: string): string | null {
+  // Try to find the baseline commit by message
+  const result = execSafe('git log --all --grep="chore: baseline setup" --format=%H -1', cwd);
+  if (result.ok && result.stdout) return result.stdout;
+
+  // Fallback: find the merge-base with the first parent (the branch point)
+  const mergeBase = execSafe('git rev-list --max-parents=0 HEAD', cwd);
+  if (mergeBase.ok && mergeBase.stdout) {
+    const firstCommit = mergeBase.stdout.split('\n')[0];
+    return firstCommit;
+  }
+  return null;
+}
+
+export function getDiffFromBaseline(cwd: string): string {
+  const baseline = getBaselineCommit(cwd);
+  if (!baseline) return getDiff(cwd);
+  // Stage any uncommitted changes so they're included
+  exec('git add -A', cwd);
+  // Diff from baseline to the current staged state (HEAD + staged)
+  // Use --cached to include staged but uncommitted changes on top of committed ones
+  const committed = execSafe(`git diff ${baseline} HEAD`, cwd);
+  const staged = execSafe('git diff --cached HEAD', cwd);
+  // If there are committed changes from baseline, return those
+  if (committed.ok && committed.stdout.trim()) return committed.stdout;
+  // Otherwise return staged changes (in case nothing was committed yet)
+  if (staged.ok && staged.stdout.trim()) return staged.stdout;
+  return '';
+}
+
+export function getDiffStatFromBaseline(cwd: string): string {
+  const baseline = getBaselineCommit(cwd);
+  if (!baseline) return getDiffStat(cwd);
+  exec('git add -A', cwd);
+  const result = execSafe(`git diff ${baseline} HEAD --stat`, cwd);
+  if (result.ok && result.stdout.trim()) return result.stdout;
+  return execSafe('git diff --cached HEAD --stat', cwd).stdout || '';
+}
+
+export function getChangedFilesFromBaseline(cwd: string): string[] {
+  const baseline = getBaselineCommit(cwd);
+  if (!baseline) return getChangedFiles(cwd);
+  exec('git add -A', cwd);
+  const result = execSafe(`git diff ${baseline} HEAD --name-only`, cwd);
+  if (result.ok && result.stdout.trim()) {
+    return result.stdout.split('\n').filter((f) => f.length > 0);
+  }
+  // Fallback to staged changes
+  return getChangedFiles(cwd);
+}
